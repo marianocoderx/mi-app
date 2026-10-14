@@ -49,7 +49,7 @@ export default function ComparePanel({
   const radarDs = loaded.filter((d) => d.kind !== 'category').map((d) => ({ ...d, values: getVals(d) }))
 
   return (
-    <aside className="absolute top-4 right-4 z-10 w-80 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl bg-neutral-900/90 p-4 text-sm text-neutral-100 backdrop-blur space-y-4">
+    <aside className="absolute top-4 right-4 z-10 w-80 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl bg-neutral-900/90 p-4 text-sm text-neutral-100 backdrop-blur space-y-4 max-md:top-[4.75rem] max-md:left-2 max-md:right-2 max-md:w-auto max-md:max-h-[45vh]">
       <div className="flex items-center justify-between">
         <h2 className="text-base font-semibold">Comparar países</h2>
         {selected.length > 0 && (

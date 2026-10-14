@@ -114,7 +114,7 @@ function Radar({ items, datasets }) {
     return (
       <p className="text-xs text-neutral-400">
         El radar cruza varias estadísticas y necesita al menos 3. Ahora tenés {datasets.length}.
-        Creá más con "+ Nueva estadística".
+        Creá más con «+ Nueva estadística».
       </p>
     )
   }

@@ -37,7 +37,7 @@ export default function DrawToolbar({
     'rounded-md bg-neutral-800 border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-700'
 
   return (
-    <aside className="absolute top-4 right-4 z-10 w-72 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl bg-neutral-900/90 p-4 text-sm text-neutral-100 backdrop-blur space-y-3">
+    <aside className="absolute top-4 right-4 z-10 w-72 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl bg-neutral-900/90 p-4 text-sm text-neutral-100 backdrop-blur space-y-3 max-md:top-[4.75rem] max-md:left-2 max-md:right-2 max-md:w-auto max-md:max-h-[45vh]">
       <h2 className="text-base font-semibold">Mapa mudo</h2>
 
       <div className="grid grid-cols-2 gap-1">

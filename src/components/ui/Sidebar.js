@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { gradientCss } from '@/utils/colors'
 import { CONTINENTS } from '@/data/continents'
 
@@ -33,6 +34,7 @@ export default function Sidebar({
     'w-full rounded-md bg-neutral-800 border border-neutral-700 px-2 py-1.5 text-sm outline-none focus:border-cyan-400'
   const btn = 'rounded-md bg-neutral-800 border border-neutral-700 px-3 py-1.5 hover:bg-neutral-700'
 
+  const [open, setOpen] = useState(false)
   const isCat = active.kind === 'category'
   const groups = [
     ['Banco Mundial', datasets.filter((d) => d.wb)],
@@ -47,7 +49,14 @@ export default function Sidebar({
     : 'Datos propios'
 
   return (
-    <aside className="absolute top-4 left-4 z-10 w-72 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl bg-neutral-900/85 p-4 text-sm text-neutral-100 backdrop-blur space-y-4">
+    <>
+      <button
+        className="absolute left-2 top-2 z-20 rounded-md border border-neutral-700 bg-neutral-900/90 px-3 py-2 text-xs text-neutral-100 backdrop-blur md:hidden"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? '✕ Cerrar' : '☰ Menú'}
+      </button>
+      <aside className={(open ? '' : 'max-md:hidden ') + 'absolute top-4 left-4 z-10 w-72 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl bg-neutral-900/85 p-4 text-sm text-neutral-100 backdrop-blur space-y-4 max-md:top-[4.75rem] max-md:left-2 max-md:right-2 max-md:z-20 max-md:w-auto max-md:max-h-[calc(100vh-6rem)]'}>
       <h1 className="text-base font-semibold">Globo de estadísticas</h1>
 
       {mute ? (
@@ -177,5 +186,6 @@ export default function Sidebar({
         Arrastrá para girar · rueda para zoom · pasá el cursor sobre un país.
       </p>
     </aside>
+    </>
   )
 }

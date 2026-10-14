@@ -74,8 +74,8 @@ export default function TimeBar({ years, time, setTime, periods, onAddPeriod, on
     }`
 
   return (
-    <div className="absolute bottom-4 left-1/2 z-10 w-[min(92vw,720px)] -translate-x-1/2 space-y-2 rounded-xl bg-neutral-900/90 p-3 text-sm text-neutral-100 backdrop-blur">
-      <div className="flex items-center gap-2">
+    <div className="absolute bottom-4 left-1/2 z-10 w-[min(92vw,720px)] -translate-x-1/2 space-y-2 rounded-xl bg-neutral-900/90 p-3 text-sm text-neutral-100 backdrop-blur max-md:bottom-2">
+      <div className="flex flex-wrap items-center gap-2">
         {time.mode === 'year' && (
           <button
             className="w-8 rounded-md border border-neutral-700 bg-neutral-800 py-1 hover:bg-neutral-700"

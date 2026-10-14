@@ -1,447 +1,292 @@
 'use client'
 
-import dynamic from 'next/dynamic'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import Sidebar from '@/components/ui/Sidebar'
-import NewDatasetModal from '@/components/ui/NewDatasetModal'
-import CatalogModal from '@/components/ui/CatalogModal'
-import SettingsModal, { DEFAULT_SETTINGS } from '@/components/ui/SettingsModal'
-import ComparePanel from '@/components/ui/ComparePanel'
-import DrawToolbar, { DRAW_COLORS } from '@/components/ui/DrawToolbar'
-import TimeBar from '@/components/ui/TimeBar'
-import { DEFAULT_DATASETS, DEFAULT_PERIODS } from '@/data/datasets'
-import { CONTINENTS, WORLD_VIEW } from '@/data/continents'
-import { getCountryList, getIso3 } from '@/utils/countries'
-import {
-  getYears,
-  getValues,
-  getRange,
-  getCategories,
-  defaultYear,
-  makeNormalizer,
-  buildGeoValues,
-} from '@/utils/dataset'
-import { fetchIndicator } from '@/utils/worldbank'
+import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { FORMATS, FORMAT_BY_ID } from '@/data/formats'
+import ItemView from '@/components/workspace/ItemView'
+import { loadItems, saveItems, loadNotes, saveNotes, makeNote } from '@/utils/store'
 
-// three.js necesita window, por eso se carga sin SSR
-const GlobeView = dynamic(() => import('@/components/globe/GlobeView'), { ssr: false })
+const PROFILE_KEY = 'profile-v1'
+const AVATAR_COLORS = ['#22d3ee', '#f472b6', '#facc15', '#a3e635', '#c084fc', '#fb923c']
+const fmtDate = (t) => new Date(t).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' })
 
-const MAX_COMPARE = 5
-const DS_KEY = 'datasets-v2'
-const SET_KEY = 'settings-v1'
-const TL_KEY = 'timeline-items'
-const ANN_KEY = 'map-annotations'
-const EMPTY = { marks: {}, pins: [], arrows: [], texts: [], pulses: [] }
-const newId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-
-// Guarda solo la referencia de lo que viene de internet, no los datos
-const toSaved = (d) =>
-  d.custom
-    ? d
-    : d.wb
-    ? { id: d.id, kind: 'numeric', wb: d.wb, name: d.name, unit: d.unit, scale: d.scale }
-    : { id: d.id, builtin: true }
-
-export default function Home() {
-  const globeRef = useRef(null)
-  const inflight = useRef(new Set())
-
-  const [countries, setCountries] = useState([])
-  const [datasets, setDatasets] = useState(DEFAULT_DATASETS)
+export default function Dashboard() {
+  const [profile, setProfile] = useState({ name: '', color: AVATAR_COLORS[0] })
+  const [items, setItems] = useState([])
+  const [notes, setNotes] = useState([])
   const [loaded, setLoaded] = useState(false)
-  const [activeId, setActiveId] = useState(DEFAULT_DATASETS[0].id)
-  const [time, setTime] = useState({ mode: 'year', year: null, from: 1990, to: 2010 })
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS)
-  const [timeline, setTimeline] = useState(DEFAULT_PERIODS)
-  const [region, setRegion] = useState('')
-
-  const [showNew, setShowNew] = useState(false)
-  const [showCatalog, setShowCatalog] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
-  const [compareMode, setCompareMode] = useState(false)
-  const [selected, setSelected] = useState([])
-
-  // Mapa mudo
-  const [mute, setMute] = useState(false)
-  const [showNames, setShowNames] = useState(false)
-  const [tool, setTool] = useState('paint')
-  const [color, setColor] = useState(DRAW_COLORS[0])
-  const [noteText, setNoteText] = useState('')
-  const [ann, setAnn] = useState(EMPTY)
-  const [draft, setDraft] = useState(null)
-
-  // ---------- carga y guardado ----------
-  useEffect(() => {
-    fetch('/data/countries.geojson')
-      .then((r) => r.json())
-      .then((geo) => setCountries(geo.features))
-  }, [])
+  const [filter, setFilter] = useState('all')
+  const [q, setQ] = useState('')
+  const [editing, setEditing] = useState(false)
 
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(DS_KEY) || 'null')
-      if (Array.isArray(saved) && saved.length) {
-        const list = saved
-          .map((s) =>
-            s.builtin
-              ? DEFAULT_DATASETS.find((d) => d.id === s.id)
-              : s.wb
-              ? { ...s, series: null, pending: true }
-              : s
-          )
-          .filter(Boolean)
-        if (list.length) {
-          setDatasets(list)
-          setActiveId(list[0].id)
-        }
-      }
-      const st = JSON.parse(localStorage.getItem(SET_KEY) || 'null')
-      if (st) setSettings({ ...DEFAULT_SETTINGS, ...st })
-      const tl = JSON.parse(localStorage.getItem(TL_KEY) || 'null')
-      if (Array.isArray(tl)) setTimeline(tl)
-      const a = JSON.parse(localStorage.getItem(ANN_KEY) || 'null')
-      if (a) setAnn({ ...EMPTY, ...a })
+      const p = JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null')
+      if (p) setProfile((prev) => ({ ...prev, ...p }))
     } catch {}
+    setItems(loadItems())
+    setNotes(loadNotes())
     setLoaded(true)
   }, [])
 
   useEffect(() => {
     if (!loaded) return
     try {
-      localStorage.setItem(DS_KEY, JSON.stringify(datasets.map(toSaved)))
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(profile))
     } catch {}
-  }, [datasets, loaded])
+  }, [profile, loaded])
 
-  useEffect(() => {
-    if (!loaded) return
-    try {
-      localStorage.setItem(SET_KEY, JSON.stringify(settings))
-      localStorage.setItem(TL_KEY, JSON.stringify(timeline))
-      localStorage.setItem(ANN_KEY, JSON.stringify(ann))
-    } catch {}
-  }, [settings, timeline, ann, loaded])
+  const counts = useMemo(() => {
+    const c = {}
+    items.forEach((i) => (c[i.type] = (c[i.type] || 0) + 1))
+    return c
+  }, [items])
 
-  // ---------- datos derivados ----------
-  const countryList = useMemo(() => getCountryList(countries), [countries])
-  const validIso = useMemo(() => new Set(countryList.map((c) => c.iso3)), [countryList])
-  const nameOf = useMemo(() => {
-    const m = {}
-    countryList.forEach((c) => (m[c.iso3] = c.name))
-    return m
-  }, [countryList])
-
-  const resolved = useMemo(
-    () => datasets.map((d) => (d.geoProp ? { ...d, values: buildGeoValues(countries, d.geoProp) } : d)),
-    [datasets, countries]
+  const ql = q.trim().toLowerCase()
+  const shown = items.filter(
+    (i) => (filter === 'all' || i.type === filter) && (!ql || i.title.toLowerCase().includes(ql))
   )
-  const active = resolved.find((d) => d.id === activeId) || resolved[0]
+  const recentNotes = [...notes].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6)
 
-  const years = useMemo(() => getYears(active), [active])
-  const range = useMemo(() => getRange(active), [active])
-  const values = useMemo(
-    () => getValues(active, time, settings.fillGaps),
-    [active, time, settings.fillGaps]
-  )
-  const categories = useMemo(
-    () => (active.kind === 'category' ? getCategories(values) : { labels: [], colors: {} }),
-    [active, values]
-  )
-  const scale = active.scale || 'linear'
-  const effScale = scale === 'log' && range.min <= 0 ? 'linear' : scale
-  const norm = useMemo(
-    () => makeNormalizer(effScale, range.min, range.max, values),
-    [effScale, range, values]
-  )
-
-  const timeLabel = !active.series
-    ? ''
-    : time.mode === 'range'
-    ? `${time.from}–${time.to} (promedio)`
-    : String(time.year ?? '')
-
-  const periods = useMemo(() => timeline.filter((i) => i.type === 'period'), [timeline])
-
-  // Ajustar el año al rango de la estadística activa
-  useEffect(() => {
-    if (!years.length) return
-    setTime((t) =>
-      t.year === null || t.year < years[0] || t.year > years[years.length - 1]
-        ? { ...t, year: defaultYear(active) }
-        : t
-    )
-  }, [years])
-
-  // Descargar del Banco Mundial cuando se elige una estadística pendiente
-  useEffect(() => {
-    const d = datasets.find((x) => x.id === activeId)
-    if (!d || !d.pending || d.error || !validIso.size || inflight.current.has(d.id)) return
-    inflight.current.add(d.id)
-    fetchIndicator(d.wb, validIso)
-      .then((series) =>
-        setDatasets((prev) =>
-          prev.map((x) => (x.id === d.id ? { ...x, series, pending: false, error: '' } : x))
-        )
-      )
-      .catch((e) =>
-        setDatasets((prev) =>
-          prev.map((x) => (x.id === d.id ? { ...x, error: e.message || 'Error de red' } : x))
-        )
-      )
-      .finally(() => inflight.current.delete(d.id))
-  }, [activeId, datasets, validIso])
-
-  // ---------- acciones ----------
-  const handleAddDataset = (ds) => {
-    setDatasets((prev) => (prev.some((d) => d.id === ds.id) ? prev : [...prev, ds]))
-    setActiveId(ds.id)
-    setShowNew(false)
-    setShowCatalog(false)
+  const create = (id) => {
+    if (id === 'map') window.location.href = '/globe'
+    else window.location.href = '/workspace?new=' + id
   }
 
-  const handleRemove = (id) => {
-    if (datasets.length <= 1) return
-    const rest = datasets.filter((d) => d.id !== id)
-    setDatasets(rest)
-    if (activeId === id) setActiveId(rest[0].id)
+  const createNote = () => {
+    const n = makeNote()
+    const list = loadNotes()
+    list.unshift(n)
+    saveNotes(list)
+    window.location.href = '/workspace?note=' + n.id
   }
 
-  const handleScale = (s) =>
-    setDatasets((prev) => prev.map((d) => (d.id === activeId ? { ...d, scale: s } : d)))
-
-  const handleRetry = () =>
-    setDatasets((prev) => prev.map((d) => (d.id === activeId ? { ...d, error: '' } : d)))
-
-  const handleRegion = (name) => {
-    setRegion(name)
-    const g = globeRef.current
-    if (!g) return
-    const c = CONTINENTS.find((x) => x[0] === name)
-    g.pointOfView(c ? c[2] : WORLD_VIEW, 1000)
+  const deleteItem = (e, id) => {
+    e.stopPropagation()
+    if (!window.confirm('¿Eliminar este item del portafolio?')) return
+    const next = items.filter((x) => x.id !== id)
+    setItems(next)
+    saveItems(next)
   }
 
-  const handleZoom = (factor) => {
-    const g = globeRef.current
-    if (!g) return
-    const { altitude } = g.pointOfView()
-    g.pointOfView({ altitude: Math.min(4, Math.max(0.15, altitude * factor)) }, 400)
-  }
-
-  const toggleCompare = () => {
-    setCompareMode((on) => !on)
-    setSelected([])
-    setMute(false)
-    setDraft(null)
-  }
-
-  const toggleMute = () => {
-    setMute((on) => !on)
-    setCompareMode(false)
-    setSelected([])
-    setDraft(null)
-  }
-
-  const handleCountryClick = (feat) => {
-    const iso = getIso3(feat.properties)
-    if (!iso || iso === '-99') return
-    setSelected((prev) => {
-      if (prev.includes(iso)) return prev.filter((x) => x !== iso)
-      if (prev.length >= MAX_COMPARE) return prev
-      return [...prev, iso]
-    })
-  }
-
-  const handleTool = (t) => {
-    setTool(t)
-    setDraft(null)
-  }
-
-  const handleMapClick = (coords, feat) => {
-    const iso = feat ? getIso3(feat.properties) : null
-
-    if (tool === 'erase') {
-      if (iso) {
-        setAnn((a) => {
-          const marks = { ...a.marks }
-          delete marks[iso]
-          return { ...a, marks }
-        })
-      }
-      return
-    }
-
-    if (tool === 'paint') {
-      if (!iso || iso === '-99') return
-      setAnn((a) => {
-        const marks = { ...a.marks }
-        if (marks[iso] === color) delete marks[iso]
-        else marks[iso] = color
-        return { ...a, marks }
-      })
-      return
-    }
-
-    if (!coords || typeof coords.lat !== 'number') return
-    const { lat, lng } = coords
-
-    if (tool === 'pin') {
-      setAnn((a) => ({ ...a, pins: [...a.pins, { id: newId(), lat, lng, color, text: noteText.trim() }] }))
-    } else if (tool === 'text') {
-      setAnn((a) => ({
-        ...a,
-        texts: [...a.texts, { id: newId(), lat, lng, color, text: noteText.trim() || 'Nota' }],
-      }))
-    } else if (tool === 'pulse') {
-      setAnn((a) => ({ ...a, pulses: [...a.pulses, { id: newId(), lat, lng, color }] }))
-    } else if (tool === 'arrow') {
-      if (!draft) {
-        setDraft({ lat, lng })
-      } else {
-        setAnn((a) => ({
-          ...a,
-          arrows: [
-            ...a.arrows,
-            { id: newId(), startLat: draft.lat, startLng: draft.lng, endLat: lat, endLng: lng, color },
-          ],
-        }))
-        setDraft(null)
-      }
-    }
-  }
-
-  const handleItemClick = (kind, id) => {
-    if (!mute || tool !== 'erase') return
-    const field = { pin: 'pins', text: 'texts', arrow: 'arrows', pulse: 'pulses' }[kind]
-    if (!field) return
-    setAnn((a) => ({ ...a, [field]: a[field].filter((x) => x.id !== id) }))
-  }
-
-  const handleExport = () => {
-    const g = globeRef.current
-    if (!g) return
-    const link = document.createElement('a')
-    link.href = g.renderer().domElement.toDataURL('image/png')
-    link.download = 'mapa.png'
-    link.click()
-  }
+  const initial = (profile.name.trim()[0] || '?').toUpperCase()
+  const chip = (on) =>
+    `rounded-full border px-3 py-1 text-xs ${
+      on ? 'border-cyan-400 bg-cyan-900/40 text-cyan-200' : 'border-neutral-700 bg-neutral-800 hover:bg-neutral-700'
+    }`
 
   return (
-    <main className="fixed inset-0 z-50 bg-black">
-      <GlobeView
-        globeRef={globeRef}
-        countries={countries}
-        dataset={active}
-        values={values}
-        kind={active.kind}
-        norm={norm}
-        catColors={categories.colors}
-        settings={settings}
-        timeLabel={timeLabel}
-        region={region}
-        compareMode={compareMode}
-        selected={selected}
-        onCountryClick={handleCountryClick}
-        mute={mute}
-        showNames={showNames}
-        marks={ann.marks}
-        pins={ann.pins}
-        arrows={ann.arrows}
-        texts={ann.texts}
-        pulses={ann.pulses}
-        draft={draft}
-        onMapClick={handleMapClick}
-        onItemClick={handleItemClick}
-      />
+    <div className="min-h-screen bg-neutral-950 text-sm text-neutral-100">
+      <div className="mx-auto max-w-6xl space-y-8 p-6">
+        {/* Perfil */}
+        <header className="flex flex-wrap items-center gap-4">
+          <button
+            className="flex h-16 w-16 items-center justify-center rounded-full text-2xl font-bold text-black"
+            style={{ background: profile.color }}
+            onClick={() => setEditing((e) => !e)}
+            title="Editar perfil"
+          >
+            {initial}
+          </button>
+          <div className="min-w-0 flex-1">
+            {editing ? (
+              <div className="space-y-2">
+                <input
+                  autoFocus
+                  className="w-full max-w-xs rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-lg outline-none focus:border-cyan-400"
+                  placeholder="Tu nombre"
+                  value={profile.name}
+                  onChange={(e) => setProfile({ ...profile, name: e.target.value })}
+                  onKeyDown={(e) => e.key === 'Enter' && setEditing(false)}
+                />
+                <div className="flex items-center gap-2">
+                  {AVATAR_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setProfile({ ...profile, color: c })}
+                      className={`h-6 w-6 rounded-full border-2 ${profile.color === c ? 'border-white' : 'border-neutral-700'}`}
+                      style={{ background: c }}
+                      aria-label={c}
+                    />
+                  ))}
+                  <button className="ml-2 text-xs text-cyan-300 underline" onClick={() => setEditing(false)}>
+                    Listo
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <h1 className="truncate text-2xl font-semibold">
+                  {profile.name.trim() ? `Hola, ${profile.name.trim()}` : 'Mi dashboard'}
+                </h1>
+                <p className="text-xs text-neutral-400">
+                  {items.length} items en el portafolio · {notes.length} notas
+                  {!profile.name.trim() && ' · tocá el círculo para poner tu nombre'}
+                </p>
+              </>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2 max-sm:w-full">
+            <Link
+              href="/globe"
+              className="rounded-md border border-neutral-700 bg-cyan-700 px-3 py-2 text-xs hover:bg-cyan-600"
+            >
+              🌍 Abrir el globo
+            </Link>
+            <Link
+              href="/maps"
+              className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs hover:bg-neutral-700"
+            >
+              🗺️ Mapas planos
+            </Link>
+            <Link
+              href="/workspace?tab=graph"
+              className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs hover:bg-neutral-700"
+            >
+              Grafo de notas
+            </Link>
+          </div>
+        </header>
 
-      <Sidebar
-        datasets={resolved}
-        active={active}
-        onSelect={setActiveId}
-        onRemove={handleRemove}
-        min={range.min}
-        max={range.max}
-        scale={scale}
-        onScale={handleScale}
-        categories={categories}
-        settings={settings}
-        region={region}
-        onRegion={handleRegion}
-        onZoom={handleZoom}
-        onNew={() => setShowNew(true)}
-        onCatalog={() => setShowCatalog(true)}
-        onSettings={() => setShowSettings(true)}
-        compareMode={compareMode}
-        onToggleCompare={toggleCompare}
-        mute={mute}
-        onToggleMute={toggleMute}
-        onRetry={handleRetry}
-        timeLabel={timeLabel}
-      />
+        {/* Contadores */}
+        <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          {FORMATS.map((f) => (
+            <div key={f.id} className="rounded-lg border border-neutral-800 bg-neutral-900 p-3">
+              <div className="text-xl font-semibold">{counts[f.id] || 0}</div>
+              <div className="text-xs text-neutral-400">
+                {f.icon} {f.name}
+              </div>
+            </div>
+          ))}
+          <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-3">
+            <div className="text-xl font-semibold">{notes.length}</div>
+            <div className="text-xs text-neutral-400">📝 Notas</div>
+          </div>
+        </section>
 
-      {compareMode && (
-        <ComparePanel
-          selected={selected}
-          nameOf={nameOf}
-          datasets={resolved}
-          active={active}
-          activeVals={values}
-          getVals={(d) => getValues(d, time, settings.fillGaps)}
-          time={time}
-          timeLabel={timeLabel}
-          onRemove={(iso) => setSelected((prev) => prev.filter((x) => x !== iso))}
-          onClear={() => setSelected([])}
-        />
-      )}
+        {/* Crear */}
+        <section>
+          <h2 className="mb-2 text-xs uppercase tracking-wide text-neutral-400">Crear</h2>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {FORMATS.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => create(f.id)}
+                className="rounded-lg border border-neutral-700 bg-neutral-900 p-3 text-left hover:border-cyan-400 hover:bg-neutral-800"
+              >
+                <div className="text-base">
+                  {f.icon} {f.name}
+                </div>
+                <div className="mt-1 text-xs text-neutral-400">{f.desc}</div>
+              </button>
+            ))}
+            <button
+              onClick={createNote}
+              className="rounded-lg border border-neutral-700 bg-neutral-900 p-3 text-left hover:border-cyan-400 hover:bg-neutral-800"
+            >
+              <div className="text-base">📝 Nota / informe</div>
+              <div className="mt-1 text-xs text-neutral-400">
+                Escribí en Markdown e incrustá items del portafolio con ![[Título]].
+              </div>
+            </button>
+          </div>
+        </section>
 
-      {mute && (
-        <DrawToolbar
-          tool={tool}
-          onTool={handleTool}
-          color={color}
-          onColor={setColor}
-          text={noteText}
-          onText={setNoteText}
-          showNames={showNames}
-          onToggleNames={() => setShowNames((v) => !v)}
-          draft={draft}
-          onClear={() => {
-            setAnn(EMPTY)
-            setDraft(null)
-          }}
-          onExport={handleExport}
-        />
-      )}
+        {/* Portafolio */}
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="mr-2 text-xs uppercase tracking-wide text-neutral-400">Portafolio</h2>
+            <button className={chip(filter === 'all')} onClick={() => setFilter('all')}>
+              Todo
+            </button>
+            {FORMATS.map((f) => (
+              <button key={f.id} className={chip(filter === f.id)} onClick={() => setFilter(f.id)}>
+                {f.icon} {f.name}
+              </button>
+            ))}
+            <input
+              className="ml-auto w-48 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-xs outline-none focus:border-cyan-400"
+              placeholder="Buscar…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
 
-      {!mute && years.length > 1 && (
-        <TimeBar
-          years={years}
-          time={time}
-          setTime={setTime}
-          periods={periods}
-          onAddPeriod={(p) => setTimeline((t) => [...t, p])}
-          onRemovePeriod={(id) => setTimeline((t) => t.filter((i) => i.id !== id))}
-        />
-      )}
+          {shown.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-neutral-800 p-6 text-center text-xs text-neutral-500">
+              {items.length === 0
+                ? 'Tu portafolio está vacío. Creá algo desde las tarjetas de arriba o guardá una vista desde el globo.'
+                : 'Ningún item coincide con el filtro.'}
+            </p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {shown.map((it) => {
+                const f = FORMAT_BY_ID[it.type] || { icon: '📄', name: it.type }
+                return (
+                  <Link
+                    key={it.id}
+                    href={'/workspace?item=' + it.id}
+                    className="group overflow-hidden rounded-lg border border-neutral-800 bg-neutral-900 hover:border-cyan-400"
+                  >
+                    <div className="pointer-events-none h-44 overflow-hidden bg-neutral-950 p-2">
+                      <ItemView item={it} />
+                    </div>
+                    <div className="flex items-center gap-2 border-t border-neutral-800 p-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate">{it.title}</div>
+                        <div className="text-xs text-neutral-500">
+                          {f.icon} {f.name} · {fmtDate(it.updatedAt)}
+                        </div>
+                      </div>
+                      <button
+                        className="text-neutral-500 opacity-0 hover:text-red-400 group-hover:opacity-100"
+                        onClick={(e) => deleteItem(e, it.id)}
+                        title="Eliminar"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+        </section>
 
-      {showNew && (
-        <NewDatasetModal countryList={countryList} onCreate={handleAddDataset} onClose={() => setShowNew(false)} />
-      )}
+        {/* Notas */}
+        <section className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs uppercase tracking-wide text-neutral-400">Notas recientes</h2>
+            <Link href="/workspace?tab=notes" className="text-xs text-cyan-300 underline">
+              Ver todas
+            </Link>
+          </div>
+          {recentNotes.length === 0 ? (
+            <p className="text-xs text-neutral-500">Todavía no escribiste notas.</p>
+          ) : (
+            <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {recentNotes.map((n) => (
+                <li key={n.id}>
+                  <Link
+                    href={'/workspace?note=' + n.id}
+                    className="block rounded-lg border border-neutral-800 bg-neutral-900 p-3 hover:border-cyan-400"
+                  >
+                    <div className="truncate">📝 {n.title || 'Sin título'}</div>
+                    <div className="mt-1 line-clamp-2 text-xs text-neutral-500">
+                      {n.body.replace(/^#+\s.*\n?/, '').trim().slice(0, 120) || 'Vacía'}
+                    </div>
+                    <div className="mt-1 text-xs text-neutral-600">{fmtDate(n.updatedAt)}</div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
-      {showCatalog && (
-        <CatalogModal
-          have={datasets.map((d) => d.id)}
-          onAdd={handleAddDataset}
-          onClose={() => setShowCatalog(false)}
-        />
-      )}
-
-      {showSettings && (
-        <SettingsModal
-          settings={settings}
-          onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
-          onReset={() => setSettings(DEFAULT_SETTINGS)}
-          onClose={() => setShowSettings(false)}
-        />
-      )}
-    </main>
+        <p className="pb-4 text-xs text-neutral-600">
+          Todo se guarda en este navegador. Más adelante lo pasamos a una cuenta en la nube.
+        </p>
+      </div>
+    </div>
   )
 }

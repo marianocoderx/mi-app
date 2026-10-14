@@ -40,3 +40,30 @@ export async function fetchIndicatorInfo(code) {
   if (!row) throw new Error('No encontré ese código de indicador')
   return { code: row.id, name: row.name, unit: row.unit || '' }
 }
+
+// Serie de un indicador para pocos países (liviano). Devuelve { series, names }
+export async function fetchCountrySeries(code, isos) {
+  const end = new Date().getFullYear()
+  const url = `${BASE}/country/${isos.join(';')}/indicator/${encodeURIComponent(
+    code
+  )}?format=json&per_page=5000&date=1960:${end}`
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`Error ${res.status} al consultar el Banco Mundial`)
+  const json = await res.json()
+  if (!Array.isArray(json) || !json[1]) {
+    const msg = json && json[0] && json[0].message && json[0].message[0]
+    throw new Error(msg ? msg.value : 'Sin datos para esa combinación')
+  }
+  const series = {}
+  const names = {}
+  for (const r of json[1]) {
+    const iso = r.countryiso3code
+    if (!iso) continue
+    names[iso] = r.country && r.country.value
+    if (r.value === null || r.value === undefined) continue
+    if (!series[r.date]) series[r.date] = {}
+    series[r.date][iso] = r.value
+  }
+  if (!Object.keys(series).length) throw new Error('Esos países no tienen datos para este indicador')
+  return { series, names }
+}
